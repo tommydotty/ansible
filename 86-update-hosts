@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Aggiorna /etc/hosts al cambio IP tramite NetworkManager dispatcher
+# Funziona per IPv4 e IPv6
+
+INTERFACE="$1"
+ACTION="$2"
+
+# Esegui solo su evento "up" o "dhcp4-change" o "dhcp6-change"
+if [[ "$ACTION" != "up" && "$ACTION" != "dhcp4-change" && "$ACTION" != "dhcp6-change" ]]; then
+  exit 0
+fi
+
+# Recupera IPv4 e IPv6 se disponibili
+IPV4="${DHCP4_IP_ADDRESS:-$(echo "$IP4_ADDRESS_0" | awk '{print $1}' | cut -d/ -f1)}"
+IPV6="$(echo "$IP6_ADDRESS_0" | awk '{print $1}' | cut -d/ -f1)"
+
+# Recupera hosstname e dominio
+HOSTNAME="$(hostname -s)"
+FQDN="${HOSTNAME}.$(awk '/domain/ {print $2}' /etc/resolv.conf)"
+
+# Se non c’è IP, esci
+if [[ -z "$IPV4" && -z "$IPV6" ]]; then
+  exit 0
+fi
+
+# Backup del file hosts
+cp -p /etc/hosts /etc/hosts.bak.$(date +%Y%m%d%H%M%S)
+
+# Rimuove vecchie voci per questo hostname
+sed -i "/${HOSTNAME}/d" /etc/hosts
+
+# Aggiunge nuove voci
+if [[ -n "$IPV4" ]]; then
+  echo "${IPV4} ${FQDN} ${HOSTNAME}" >> /etc/hosts
+fi
+if [[ -n "$IPV6" && "$IPV6" != "fe80:"* ]]; then
+  echo "${IPV6} ${FQDN} ${HOSTNAME}" >> /etc/hosts
+fi
+
+exit 0

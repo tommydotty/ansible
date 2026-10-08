@@ -1,0 +1,259 @@
+#!/bin/bash
+
+# Reset variables
+unset flags
+unset long_to_short
+unset descriptions
+unset all_options
+unset flag_bools
+
+# Declare variabes
+declare -A flags         # short -> long
+declare -A long_to_short # long -> short
+declare -A descriptions  # long -> description
+declare -a all_options
+
+declare -a flag_bools=("help" "verbose" "dryrun")
+
+# Initialize options
+init_args() {
+    args=(
+        "h:help"     "Print this help"
+        "v:verbose"  "Allow verbose mode"
+        "d:dryrun"   "Simulate command execution"
+    )
+    if declare -p custom_args &>/dev/null; then
+        args+=("${custom_args[@]}")
+    fi
+
+    while [[ "${#args[@]}" -gt "0" ]]; do
+
+        if [[ "${args[0]}" == *:* ]]; then
+            IFS=':' read -r short_opt long_opt <<< "${args[0]}"
+            short="$short_opt"
+            long="$long_opt"
+            flags["$short"]="$long"
+            long_to_short["$long"]="$short"
+        else
+            long="${args[0]}"
+        fi
+
+        all_options+=("$long")
+        descriptions["$long"]="${args[1]}"
+
+        if [[ " ${flag_bools[*]} " == *" $long "* ]]; then
+            eval "$long=false" 
+            else
+            eval "$long=\"\"" 
+        fi
+        args=("${args[@]:2}")
+
+    done
+}
+
+# Vrify boolean variables
+is_bool_flag() {
+    local name="$1"
+    for f in "${flag_bools[@]}"; do
+        if [[ "$f" == "$name" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Parsing arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        if [[ "$arg" =~ ^-([a-zA-Z])$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            long="${flags[$key]}"
+            if [[ -z "$long" ]]; then
+                echo -e "\033[1;31m[ERROR]\033[0m Unknown parameter $arg" >&2
+                exit 4
+            fi
+            if is_bool_flag  "$long"; then
+                eval "$long=true"
+                else
+                shift
+                eval "$long=\"$1\""
+            fi
+
+        elif [[ "$arg" =~ ^--([a-zA-Z0-9_-]+)$ ]]; then
+            long="${BASH_REMATCH[1]}"
+            if [[ ! " ${all_options[*]} " =~ " $long " ]]; then
+                echo -e "\033[1;31m[ERROR]\033[0m Unknown parameter $arg" >&2
+                exit 4
+            fi
+            if is_bool_flag "$long"; then
+                eval "$long=true"
+                else
+                shift
+                eval "$long=\"$1\""
+            fi
+
+        else
+            echo -e "\033[1;31m[ERROR]\033[0m Unknown parameter $arg" >&2
+            exit 4
+        fi
+        shift
+    done
+    if [[ "$help" == "true" ]]; then help && exit 0; fi
+}
+
+# Check required arguments 
+check_args() {
+    for var in "$@"; do
+        eval "val=\$$var"
+        if [[ -z "$val" ]] || [[ "$val" -ne "true" ]]; then
+            echo -e "\033[1;31m[ERROR]\033[0m Variamble $var is required but has not been provided."
+            help
+            exit 4
+        fi
+    done
+}
+
+# Dynamic help page
+help() {
+    printf "\n  Usage: $(basename $0) FLAGS OPTIONS\n\n  OPTIONS:\n\n"
+
+    mapfile -t sorted_options < <(printf "%s\n" "${all_options[@]}" | sort)
+
+    for long in "${sorted_options[@]}"; do
+        desc="${descriptions[$long]}"
+        short="${long_to_short[$long]}"
+        if [[ -n "$short" ]]; then
+            printf "    -%s, --%s:\n      %s\n\n" "$short" "$long" "$desc"
+            else
+            printf "    --%s:\n      %s\n\n" "$long" "$desc"
+        fi
+    done
+    echo ""
+}
+
+# Verbose mode
+verbose() {
+      if [[ "$verbose" == "true" ]]; then
+                printf "\t\033[1;36m[VERBOSE] $*\033[0m "
+                    fi
+                        if [[ "$dryrun" == "true" ]]; then
+                                  printf "\t\033[1;36m[VERBOSE] $*\033[0m \n"
+                                      fi
+                                    }
+
+
+# Command simulation
+cmd() {
+    if [[ "$dryrun" == "true" ]]; then
+        printf "\n\033[1;35m[DRYRUN] $*\033[0m"
+    elif [[ "$verbose" == "true" ]]; then
+        "$@" &> /dev/null && printf "\t||\t\033[1;32mSUCCESS\033[0m\n" && return 0 || printf "\t||\t\033[1;31mFAILED\033[0m\n" && return 9
+    else
+        "$@" &> /dev/null && return 0 || return 9
+    fi
+}
+
+# Check exit code
+rc_checker() {
+    local r_code="$?"
+    if [[ "$r_code" -ne "0" ]]; then
+        sleep 1
+        if [[ ${#@} -gt "0" ]]; then
+            fprint "\n$@\n"
+        fi
+        exit ${r_code}
+    fi
+}
+
+# Print all parameters
+printer() {
+        printf "\n--- Evaluating parameters ---\n"
+        sleep 1
+        for long in "${all_options[@]}"; do
+            eval "val=\$$long"
+            printf "$long: $val\n"
+        done
+}
+
+# User input
+ask_yn() {
+    read -p "Do you want to continue? (yes/y | no/n): " answer
+    case $answer in
+        yes|y)
+            echo "Continuing..."
+            return 0;;
+        no|n)
+            echo "Exiting."
+            exit 0;;
+        *) ;;
+    esac
+}
+
+custom_args=(
+"r:role" "Specifica il ruolo del nodo"
+"n:vol-name" "Specifica il volume da sanificare"
+"p:paranoid" "Usalo solo se sei paranoico"
+)
+
+init_args
+parse_args "$@"
+check_args role
+
+echo "Sanitize Diamanti volumes"
+
+if [[ -z "$role" ]];then
+  echo "usage $@ <CLUSTER_NODE_ROLE>"
+  exit 1
+fi
+
+file=$(mktemp)
+
+node=$(dctl cluster status | grep -F "${role}." | awk '{print $1}')
+
+if [[ -n ${volume} ]]; then
+  echo "Analize volume $volume"
+  verbose "Checking if volume $volume is on node $node and gather plex ID"
+  dctl volume describe ${volume} | grep -A 20 "Plexes:" | grep ${node} |awk '{print $1}' > "$file"
+else
+  for i in $(dctl volume list | grep "$node" | awk '{print $1}'); do
+    dctl volume describe "$i" | grep -A 20 "Plexes:" | tail -n +4 | grep Detached |awk '{print $1}'
+  done > "$file"
+fi
+
+if [[ ! -s "$file" ]]; then
+  echo "Nessun volume Detached trovato su $node"
+  rm -f "$file"
+  exit 0
+fi
+
+sed -i 's/\.\([^.]*\)$/ \1/' "$file"
+
+echo "Sanitizing $node volume's"
+while read -r volume plex; do
+  echo "  Sanitizing volume ${volume}"
+  verbose "Deleting plex $plex"
+  cmd dctl volume plex-delete "$volume" "$plex"
+  verbose "Waiting plex deletion"
+  cmd sleep 10
+
+  if dctl volume describe ${volume} | grep -A 20 "Plexes:" | tail -n +4 | grep -qF "Detached" | grep -vF "PendingDelete"; then
+    echo "Warning: Volume remain detached"
+  else
+    while dctl volume describe ${volume} | grep -A 20 "Plexes:" | tail -n +4 | grep -qF "PendingDelete"; do sleep 5; done
+
+    verbose "  Updating plex"
+    cmd sleep 1
+    cmd dctl volume update "$volume" -m 2
+    if [[ ${paranoid} != "false" ]]; then
+      verbose "Waiting plex resync"
+      while dctl volume describe ${volume} | grep -A 20 "Plexes:" | tail -n +4 | grep -qF "Resyncing"; do sleep 1m;done
+    elif dctl volume describe ${volume} | grep -A 20 "Plexes:" | tail -n +4 | grep -qF "Detached"; then
+      cmd sleep 10
+      until dctl volume describe ${volume} | grep -A 20 "Plexes:" | tail -n +4 | grep -qF "Resyncing"; do sleep 5;done
+    fi
+  fi
+
+echo "  Volume $volume sanitized!"
+done < "$file"
+rm -f "$file"

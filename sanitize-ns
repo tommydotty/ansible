@@ -1,0 +1,299 @@
+#!/bin/bash
+
+# Reset variables
+unset flags
+unset long_to_short
+unset descriptions
+unset all_options
+unset flag_bools
+
+# Declare variabes
+declare -A flags         # short -> long
+declare -A long_to_short # long -> short
+declare -A descriptions  # long -> description
+declare -a all_options
+
+declare -a flag_bools=("help" "verbose" "dryrun")
+
+# Initialize options
+init_args() {
+    args=(
+        "h:help"     "Print this help"
+        "v:verbose"  "Allow verbose mode"
+        "d:dryrun"   "Simulate command execution"
+    )
+    if declare -p custom_args &>/dev/null; then
+        args+=("${custom_args[@]}")
+    fi
+
+    while [[ "${#args[@]}" -gt "0" ]]; do
+
+        if [[ "${args[0]}" == *:* ]]; then
+            IFS=':' read -r short_opt long_opt <<< "${args[0]}"
+            short="$short_opt"
+            long="$long_opt"
+            flags["$short"]="$long"
+            long_to_short["$long"]="$short"
+        else
+            long="${args[0]}"
+        fi
+
+        all_options+=("$long")
+        descriptions["$long"]="${args[1]}"
+
+        if [[ " ${flag_bools[*]} " == *" $long "* ]]; then
+            eval "$long=false" 
+            else
+            eval "$long=\"\"" 
+        fi
+        args=("${args[@]:2}")
+
+    done
+}
+
+# Vrify boolean variables
+is_bool_flag() {
+    local name="$1"
+    for f in "${flag_bools[@]}"; do
+        if [[ "$f" == "$name" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Parsing arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        if [[ "$arg" =~ ^-([a-zA-Z])$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            long="${flags[$key]}"
+            if [[ -z "$long" ]]; then
+                echo -e "\033[1;31m[ERROR]\033[0m Unknown parameter $arg" >&2
+                exit 4
+            fi
+            if is_bool_flag  "$long"; then
+                eval "$long=true"
+                else
+                shift
+                eval "$long=\"$1\""
+            fi
+
+        elif [[ "$arg" =~ ^--([a-zA-Z0-9_-]+)$ ]]; then
+            long="${BASH_REMATCH[1]}"
+            if [[ ! " ${all_options[*]} " =~ " $long " ]]; then
+                echo -e "\033[1;31m[ERROR]\033[0m Unknown parameter $arg" >&2
+                exit 4
+            fi
+            if is_bool_flag "$long"; then
+                eval "$long=true"
+                else
+                shift
+                eval "$long=\"$1\""
+            fi
+
+        else
+            echo -e "\033[1;31m[ERROR]\033[0m Unknown parameter $arg" >&2
+            exit 4
+        fi
+        shift
+    done
+    if [[ "$help" == "true" ]]; then help && exit 0; fi
+}
+
+# Check required arguments 
+check_args() {
+    for var in "$@"; do
+        eval "val=\$$var"
+        if [[ -z "$val" ]] || [[ "$val" -ne "true" ]]; then
+            echo -e "\033[1;31m[ERROR]\033[0m Variamble $var is required but has not been provided."
+            help
+            exit 4
+        fi
+    done
+}
+
+# Dynamic help page
+help() {
+    printf "\n  Usage: $(basename $0) FLAGS OPTIONS\n\n  OPTIONS:\n\n"
+
+    mapfile -t sorted_options < <(printf "%s\n" "${all_options[@]}" | sort)
+
+    for long in "${sorted_options[@]}"; do
+        desc="${descriptions[$long]}"
+        short="${long_to_short[$long]}"
+        if [[ -n "$short" ]]; then
+            printf "    -%s, --%s:\n      %s\n\n" "$short" "$long" "$desc"
+            else
+            printf "    --%s:\n      %s\n\n" "$long" "$desc"
+        fi
+    done
+    echo ""
+}
+
+# Verbose mode
+verbose() {
+    if [[ "$verbose" == "true" ]] || [[ "$dryrun" == "true" ]]; then
+        printf "\n\033[1;36m[VERBOSE] $*\033[0m"
+    fi
+}
+
+# Command simulation
+cmd() {
+    if [[ "$dryrun" == "true" ]]; then
+        printf "\n\033[1;35m[DRYRUN] $*\033[0m"
+    elif [[ "$verbose" == "true" ]]; then
+        "$@" &> /dev/null && printf "\t||\t\033[1;32mSUCCESS\033[0m\n" && return 0 || printf "\t||\t\033[1;31mFAILED\033[0m\n" && return 9
+    else
+        "$@" &> /dev/null && return 0 || return 9
+    fi
+}
+
+# Check exit code
+rc_checker() {
+    local r_code="$?"
+    if [[ "$r_code" -ne "0" ]]; then
+        sleep 1
+        if [[ ${#@} -gt "0" ]]; then
+            fprint "\n$@\n"
+        fi
+        exit ${r_code}
+    fi
+}
+
+# Print all parameters
+printer() {
+        printf "\n--- Evaluating parameters ---\n"
+        sleep 1
+        for long in "${all_options[@]}"; do
+            eval "val=\$$long"
+            printf "$long: $val\n"
+        done
+}
+
+# User input
+ask_yn() {
+    read -p "Do you want to continue? (yes/y | no/n): " answer
+    case $answer in
+        yes|y)
+            echo "Continuing..."
+            return 0;;
+        no|n)
+            echo "Exiting."
+            exit 0;;
+        *) ;;
+    esac
+}
+
+custom_args=(
+"n:namespace" "Specifica il namespace"
+)
+
+init_args
+parse_args "$@"
+check_args namespace
+
+verbose "===GATHERING INFORMATION==="
+IFS=$'\n' read -d '' -r -a vm_list <<< "$(kubectl get vm -n "${namespace}" -o custom-columns=:.metadata.name --no-headers 2>/dev/null &)"
+IFS=$'\n' read -d '' -r -a svc_list <<< "$(kubectl get svc -n "${namespace}" --no-headers -o custom-columns=:.metadata.name 2>/dev/null &)"
+IFS=$'\n' read -d '' -r -a pvc_list <<< "$(kubectl get pvc -n "${namespace}" --no-headers -o custom-columns=:.metadata.name 2>/dev/null &)"
+IFS=$'\n' read -d '' -r -a volume_list <<< "$(kubectl get pvc -n "${namespace}" --no-headers -o custom-columns=:.spec.volumeName 2>/dev/null &)"
+IFS=$'\n' read -d '' -r -a data_list <<< "$(kubectl get datavolumes.spektra.diamanti.io -n "${namespace}" --no-headers -o custom-columns=:.metadata.name 2>/dev/null &)"
+
+# DELETE VMs
+verbose "===MANAGING VMs==="
+if [[ ${#vm_list[@]} -gt 0 ]]; then
+    verbose "Stopping VMs"
+    for vm in "${vm_list[@]}"; do
+        cmd virtctl stop -n "${namespace}" "$vm" --grace-period=0
+        while [[ $(kubectl get vm -n ${namespace} -o custom-columns='STATUS:.status.printableStatus' --no-headers == 'Running' &>/dev/null) ]];do sleep 5;done
+    done
+
+    verbose "Deleting VMs"
+    for vm in "${vm_list[@]}"; do
+        cmd kubectl delete vm -n "${namespace}" "$vm" --force --grace-period=0
+    done
+    sleep 5
+else
+    verbose "There are no VMs to delete"
+fi
+
+
+# DELETE DATAVOLUMEs
+IFS=$'\n' read -d '' -r -a pod_list <<< "$(kubectl get pod -n "${namespace}" --no-headers -o custom-columns=:.metadata.name 2>/dev/null &)"
+verbose "===MANAGING DATAVOLUMEs==="
+if [[ ${#pvc_list[@]} -gt 0 ]]; then
+    if [[ ${#data_list[@]} -gt 0 ]]; then
+        verbose "Deleting DataVolumes"
+        for data in "${data_list[@]}"; do
+            cmd kubectl delete datavolumes.spektra.diamanti.io -n "${namespace}" "$data" --force --grace-period=0
+            while kubectl get  datavolumes.spektra.diamanti.io -n "${namespace}" "$data" &>/dev/null;do sleep 5;done
+        done
+    sleep 5
+    fi
+else
+    verbose "There are no volumes to delete"
+fi
+
+# DELETE PODs
+verbose "===MANAGING PODs==="
+if [[ ${#pod_list[@]} -gt 0 ]]; then
+    verbose "Deleting PODs"
+    for pod in "${pod_list[@]}"; do
+        cmd kubectl delete pod -n "${namespace}" "$pod" --grace-period=0 --force
+    done
+    sleep 5
+
+else
+        verbose "There are no PODs to delete"
+fi
+
+# DELETE SVCs
+verbose "===MANAGING SVCs==="
+if [[ ${#svc_list[@]} -gt 0 ]]; then
+    verbose "Deleting SVCs"
+    for svc in "${svc_list[@]}"; do
+        cmd kubectl delete pod -n "${namespace}" "$svc" --force --grace-period=0
+    done
+    sleep 5
+
+else
+        verbose "There are no PODs to delete"
+fi
+
+# DELETE PVCs
+verbose "===MANAGING VOLUMEs==="
+if [[ ${#pvc_list[@]} -gt 0 ]]; then
+    verbose "Deleting PVCs"
+    for pvc in "${pvc_list[@]}"; do
+        cmd kubectl delete pvc -n "${namespace}" "$pvc" --force --grace-period=0
+        while cmd kubectl delete pvc -n "${namespace}" "$pvc" &>/dev/null;do sleep 30;done
+    done
+    sleep 5
+
+    verbose "Deleting PVs"
+    for pv in "${volume_list[@]}"; do
+        cmd kubectl delete pv "$pv" --force --grace-period=0
+        while kubectl delete pv "$pv" &>/dev/null;do sleep 30;done
+    done
+    sleep 5
+
+    verbose "Deleting Diamanti volumes"
+    for vol in "${volume_list[@]}"; do
+        cmd dctl volume delete "$vol" --force -y
+        while dctl volume get ${vol} &>/dev/null;do sleep 30;done
+    done
+    sleep 5
+
+else
+    verbose "There are no volumes to delete"
+fi
+
+# DELETE NAMESPACE
+verbose "===MANAGING NAMESPACE==="
+verbose "Deleting NS"
+cmd kubectl delete ns "${namespace}" --force --grace-period=0
+while dctl volume get ns ${namespace} &>/dev/null;do sleep 30;done
+sleep 5
+echo "Cleaning ${namespace} SUCCESS"
