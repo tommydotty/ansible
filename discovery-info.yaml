@@ -1,9 +1,0 @@
----
-- name: Mostra informazioni sui PV
-  hosts: all
-  gather_facts: true
-  tasks:
-    - debug:
-        msg: 
-           "Hostname:{{ ansible_hostname }} vg:{{ ansible_lvm.vgs.keys() }} Disks_size:{{ ansible_facts.lvm.pvs.values() | map(attribute='size_g') | map('float') | sum }} Cores:{{ ansible_processor_cores }} Memory: {{ ansible_memtotal_mb }} MB"
-  

@@ -1,5 +1,0 @@
-- name: Configura il cluster diamanti
-  hosts: all 
-  serial: "{{ serial | default(1) }}"
-  roles: 
-    - diamanti
