@@ -1,0 +1,46 @@
+{
+  "clusters": [
+    {
+      "name": "dmtew12isp002s",
+      "kubeconfig": "/home/B0N4022/.kube/dmtew12isp002s_config",
+      "layer": "apache",
+      "env": "sviluppo"
+    },
+    {
+      "name": "dmtew12isp003s",
+      "kubeconfig": "/home/B0N4022/.kube/dmtew12isp003s_config",
+      "layer": "apache",
+      "env": "sviluppo"
+    },
+    {
+      "name": "dmtew12isp005s",
+      "kubeconfig": "/home/B0N4022/.kube/dmtew12isp005s_config",
+      "layer": "apache",
+      "env": "sviluppo"
+    },
+    {
+      "name": "dmtew12isp006s",
+      "kubeconfig": "/home/B0N4022/.kube/dmtew12isp006s_config",
+      "layer": "jboss",
+      "env": "sviluppo"
+    },
+    {
+      "name": "dmtew12isp007s",
+      "kubeconfig": "/home/B0N4022/.kube/dmtew12isp007s_config",
+      "layer": "poc",
+      "env": "sviluppo"
+    },
+    {
+      "name": "dmtew12isp004t",
+      "kubeconfig": "/home/B0N4022/.kube/dmtew12isp004t_config",
+      "layer": "apache",
+      "env": "system-test"
+    },
+    {
+      "name": "dmtew12isp005t",
+      "kubeconfig": "/home/B0N4022/.kube/dmtew12isp005t_config",
+      "layer": "jboss",
+      "env": "system-test"
+    }
+  ]
+}

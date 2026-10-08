@@ -1,0 +1,100 @@
+services:
+
+  ansible-controller:
+    image: geerlingguy/docker-rockylinux9-ansible:latest
+    container_name: ansible-controller
+    hostname: ansible-controller
+    domainname: ansible.local
+    tty: true
+    stdin_open: true
+    volumes:
+      - ./:/workdir
+    working_dir: /workdir
+    command: >
+      /bin/bash -c "
+        dnf install -y openssh-clients sshpass bind-utils net-tools &&
+        ssh-keygen -A &&
+        chmod 755 /workdir &&
+        export ANSIBLE_CONFIG=/workdir/ansible.cfg &&
+        sleep infinity
+      "
+    environment:
+      ANSIBLE_CONFIG: /workdir/ansible.cfg
+    networks:
+      ansible-network:
+        ipv4_address: 172.20.0.10
+    depends_on:
+      - host1
+      - host2
+      - host3
+
+
+  host1:
+    image: geerlingguy/docker-rockylinux9-ansible:latest
+    container_name: host1
+    hostname: host1
+    domainname: ansible.local
+    command: >
+      /bin/bash -c "
+        dnf install -y openssh-server python3 bind-utils net-tools &&
+        ssh-keygen -A &&
+        echo root:root | chpasswd &&
+        echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config &&
+        echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config &&
+        mkdir -p /run/sshd &&
+        /usr/sbin/sshd -D
+        sleep infinity
+      "
+    networks:
+      ansible-network:
+        ipv4_address: 172.20.0.11
+    privileged: true
+
+  host2:
+    image: geerlingguy/docker-rockylinux9-ansible:latest
+    container_name: host2
+    hostname: host2
+    domainname: ansible.local
+    command: >
+      /bin/bash -c "
+        dnf install -y openssh-server python3 bind-utils net-tools &&
+        ssh-keygen -A &&
+        echo root:root | chpasswd &&
+        echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config &&
+        echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config &&
+        mkdir -p /run/sshd &&
+        /usr/sbin/sshd -D
+        sleep infinity
+      "
+    networks:
+      ansible-network:
+        ipv4_address: 172.20.0.12
+    privileged: true
+
+  host3:
+    image: geerlingguy/docker-rockylinux9-ansible:latest
+    container_name: host3
+    hostname: host3
+    domainname: ansible.local
+    command: >
+      /bin/bash -c "
+        dnf install -y openssh-server python3 bind-utils net-tools &&
+        ssh-keygen -A &&
+        echo root:root | chpasswd &&
+        echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config &&
+        echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config &&
+        mkdir -p /run/sshd &&
+        /usr/sbin/sshd -D
+        sleep infinity
+      "
+    networks:
+      ansible-network:
+        ipv4_address: 172.20.0.13
+    privileged: true
+
+networks:
+  ansible-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
