@@ -1,0 +1,16 @@
+---
+apiVersion: spektra.diamanti.io/v1alpha1
+kind: DataVolume
+metadata:
+  name: {{ ansible_hostname | lower }}-os
+  namespace: {{ ansible_hostname | lower }}
+spec:
+  DataVolumeConfig:
+    pvcSize: {{ pvc_size }}GB
+    storageClass: {{ storage_class }}
+    imagePath: /dischi_for_import/{{ ansible_hostname | lower }}/{{ ansible_hostname | lower }}-to-v2c-1.qcow2
+    insecure: true
+    nodeName: {{ diamanti_node }}
+    volumeMode: filesystem
+    accessMode: ReadWriteOnce
+    waitsecs: {{ waitsecs }}

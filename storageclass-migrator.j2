@@ -1,0 +1,105 @@
+---
+# Usa i seguenti comandi sulla vm dove girerà il pod per montare l'immagine localmente
+#
+# sudo podman load -i /dischi_for_import/project/mauden-qemu-img.tar
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ vm_name }}-storage-class-migrator
+  annotations:
+    description: "Pod pensato per migrare la pvc di storage class"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: storage-class-migrator
+      image: docker.io/library/qemu-img:v1
+      imagePullPolicy: Never
+      tty: true
+      stdin: true
+      securityContext:
+        runAsUser: 0
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -ex
+          echo "############################################"
+          echo "#        Starting migration process        #"
+          echo "############################################"
+          echo ""
+          # Create destination directory if not exist
+          echo "Preparing destination directory"
+          if [[ -e /dest/.storageClassMigrator ]];then
+            echo "  Directory .storageClassMigrator exist"
+            echo '  Sanitizing destination directory'
+            rm -rf /dest/.storageClassMigrator/*
+          else
+            mkdir /dest/.storageClassMigrator
+            echo "  Directory .storageClassMigrator created"
+          fi
+                    
+          echo ""
+                              
+          # Convert raw to qcow2
+          echo "Converting raw to qcow2"
+          qemu-img convert -f raw -O qcow2 /source/disk.img /dest/.storageClassMigrator/image.qcow2
+          echo "  Conversion to qcow2 completed successfully"
+          echo ""
+                                                                                
+          # Validate
+          echo "Validating converted image"
+          qemu-img check /dest/.storageClassMigrator/image.qcow2
+          echo "  Checking completed"
+          echo "Comparing source raw and converted qcow2"
+          qemu-img compare -f raw -F qcow2 /source/disk.img /dest/.storageClassMigrator/image.qcow2
+          echo "  Comparison completed"
+                                                                                                                                                      
+          echo ""
+          echo "Conversion from raw to qcow2 completed successfully"
+                                                                                                                                                                          
+          echo ""  
+          echo "--------------------------------------------"
+          echo ""
+                                                                                                                                                                                                        
+          # Convert qcow2 back to raw into pvc-clone
+          echo "Converting qcow2 to raw into pvc-clone"
+          qemu-img convert -f qcow2 -O raw /dest/.storageClassMigrator/image.qcow2 /clone/disk.img
+          echo "  Conversion to raw completed successfully"
+                                                                                                                                                                                                                                                
+          # Validate
+          echo "Validating reconverted raw image"
+          qemu-img compare -f raw -F raw /source/disk.img /clone/disk.img
+          echo "  Comparison completed"
+          echo ""
+          echo "Conversion from qcow2 to raw completed successfully"
+          echo ""
+          echo "--------------------------------------------"
+          echo ""
+                                                                                                                                                                                                                                                                                                                                          
+          # All done
+          rm -drf /dest/.storageClassMigrator 
+          echo "All operations completed successfully"
+          echo ""
+          echo "############################################"
+      volumeMounts:
+        - name: pvc-source
+          mountPath: /source
+          readOnly: true
+        - name: host-disks
+          mountPath: /dest
+        - name: pvc-clone
+          mountPath: /clone
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+  volumes:
+    - name: pvc-source
+      persistentVolumeClaim:
+        claimName: {{ pvc_source_name }}
+    - name: host-disks
+      hostPath:
+        path: /dischi_for_import
+        type: Directory
+    - name: pvc-clone
+      persistentVolumeClaim:
+        claimName: {{ pvc_clone_name }}-clone
+  nodeSelector:
+    kubernetes.io/hostname: {{ ansible_hostname }}.syssede.systest.sanpaoloimi.com
