@@ -1,0 +1,18 @@
+- name: Run crypto-policies System Role
+  hosts: all
+  become: true
+  roles:
+    - crypto_policies
+
+- name: Show gathered information
+  hosts: all
+  tasks: 
+    - name: Show currently active crypto-policy
+      debug:
+        msg: "Currently active crypto-policy: {{ crypto_policies_active }}"
+    - name: Show available policies
+      debug:
+        msg: "Available policies: {{ crypto_policies_available_policies }}"
+    - name: Show available policy modules
+      debug:
+        msg: "Available policy modules: {{ crypto_policies_available_modules }}"

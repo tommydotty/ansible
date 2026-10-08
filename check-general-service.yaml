@@ -1,0 +1,55 @@
+---
+- name: Check service status
+  hosts: all
+  gather_facts: false
+  
+  vars:
+    valid_value: ['si', 'yes', 'true']
+
+  tasks:
+
+    - name: Gathering local facts
+      gather_facts:
+        gather_subset:
+          - local
+
+    - name: Select facts when is true
+      set_fact:
+        active_apps: >-
+          {{ ansible_local.supportoosunix.general
+            | dict2items
+            | selectattr('value', 'match', '^(?i)(si|yes|true)$')
+            | map(attribute='key')
+            | list }}
+
+    - name: Fail if active_apps is empty
+      fail:
+        msg: "Nessun servizio trovato"
+      when: active_apps | length == 0
+
+
+    - name: Collecting service status
+      service_facts:
+     
+    - name: Create service list
+      set_fact:
+        services_not_running: >-
+          {{ ansible_facts.services
+            | dict2items
+            | selectattr('value.status', 'equalto', 'enabled')
+            | selectattr('value.state', 'ne', 'running')
+            | selectattr('key', 'search', active_apps | join('|') )
+            | list }}
+
+    - name: Print service not running
+      debug:
+        msg: "{{ item.key }} is {{ item.value.state }}"
+      loop: "{{ services_not_running }}"
+
+    - name: Starting service 
+      systemd:
+        name: "{{ item.key }}"
+        state: started
+      loop: "{{ services_not_running }}"
+      loop_control:
+        label: "{{ item.key }}"

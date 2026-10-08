@@ -1,0 +1,35 @@
+- name: "Enable fstrim.timer if it's disabled"
+  hosts: all
+  tasks:
+
+    - name: Running one shot trim
+      command: fstrim -a -v
+      register: trim
+
+    - name: Ensure fstrim override directory exists
+      file:
+        path: /etc/systemd/system/fstrim.timer.d
+        state: directory
+        mode: '0755'
+
+    - name: Override fstrim default configuration
+      copy:
+        dest: /etc/systemd/system/fstrim.timer.d/override.conf
+        content: |
+          [Timer]
+          OnCalendar=
+          OnCalendar=daily
+          Persistent=true
+      register: deploy
+
+    - name: Daemon reload
+      systemd:
+        daemon_reload: true
+      when: deploy.changed
+
+    - name: Enable and start fstrim.timer
+      systemd:
+        name: fstrim.timer
+        enabled: true
+        state: started
+      when: deploy.changed

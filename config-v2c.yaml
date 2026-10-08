@@ -1,0 +1,135 @@
+- name: "Migrazione V2C - Postconfig ISP"
+  hosts: all
+  gather_facts: false
+
+  tasks:
+
+    - name: Lancio postconfig
+      delegate_to: localhost
+      register: postconfig
+      ansible.builtin.command:
+        cmd: ansible-playbook -i {{ inventory_hostname }}.syssede.systest.sanpaoloimi.com, /playbook-share/supporto-os/autoconfig_V2C.yml -e "env={{ env }} site=europe-west12-a diamanti_cluster_name={{ cluster }}"
+        chdir: /playbook-share/supporto-os/
+
+# {{{ APACHE configuration fixer
+    - name: APACHE configuration fixer
+      block:
+
+        - name: Creazione directory log se non esiste
+          file:
+            path: /cloni/logs/mb
+            state: directory
+            mode: '0755'
+
+        - name: Deploy script swa_fixer.sh
+          template:
+            src: files/swa_fixer.sh.j2
+            dest: /usr/local/bin/swa_fixer.sh
+            mode: '0755'
+            owner: root
+            group: root
+
+        - name: Deploy systemd service swa_fixer
+          template:
+            src: files/swa_fixer.service.j2
+            dest: /etc/systemd/system/swa_fixer.service
+            mode: '0644'
+            owner: root
+            group: root
+          register: deploy_service
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: true
+          when: deploy_service.changed
+
+        - name: Enable swa_fixer service
+          systemd:
+            name: swa_fixer.service
+            enabled: yes
+
+      when: ansible_local.supportoosunix.general.web | default(false) | bool
+# }}}
+
+# {{{ JBOSS configuration fixer
+    - name: JBoss configuration fixer
+      block:
+
+        - name: Get admin server via grep
+          shell: |
+            find /spimi/jboss/ -type f -name host.xml -exec grep 'port="9999"' {} \; \
+            | sed -E 's/.*host="([^"]+)".*/\1/'
+          register: admin_server_cmd
+          changed_when: false
+
+        - debug:
+            msg: "{{ admin_server_cmd }}"
+
+        - set_fact:
+            admin_server: "{{ admin_server_cmd.stdout_lines[0] }}"
+            service_lo: "{{ service | lower }}"
+          when: admin_server_cmd.stdout_lines | length > 0
+
+        - name: Find domain.xml on admin server
+          when: admin_server is defined
+          find:
+            paths: /spimi/jboss/
+            patterns: domain.xml
+            recurse: yes
+            file_type: file
+          delegate_to: "{{ admin_server }}"
+          register: domain_xml_files
+          changed_when: false
+
+        - name: Replace default-interface any -> public for {{ service_lo }}Sockets
+          when: admin_server is defined
+          replace:
+            path: "{{ item.path }}"
+            regexp: '(<socket-binding-group\b[^>]*\bname="{{ service_lo }}Sockets"[^>]*\bdefault-interface=")any(")'
+            replace: '\1public\2'
+            backup: yes
+          delegate_to: "{{ admin_server }}"
+          loop: "{{ domain_xml_files.files }}"
+          register: domain_xml_replace
+
+      when: ansible_local.supportoosunix.general.jboss | default(false) | bool == true
+# }}}
+
+    - name: fix hostname
+      hostname: 
+        name: "{{ inventory_hostname }}.syssede.systest.sanpaoloimi.com"
+
+    - name: Delete daemon logging
+      replace:
+        path: /etc/rsyslog.d/90-google.conf
+        regexp: '^daemon,?'
+        replace: ''
+      failed_when: false
+
+    - name: Reloading icinga
+      systemd:
+        name: icinga2
+        state: reloaded
+
+    - name: Delete google dispatcher script if present
+      file:
+        path: /etc/NetworkManager/dispatcher.d/google_hostname.sh
+        state: absent
+
+    - name: Deploy script dispatcher 99-fix-hosts
+      ansible.builtin.template:
+        src: files/99-fix-hosts.j2
+        dest: /etc/NetworkManager/dispatcher.d/99-fix-hosts
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Daemon reload
+      systemd:
+        daemon_reload: true
+
+    - name: Restart NetworkManager
+      systemd:
+        name: NetworkManager
+        state: started
+        enabled: true

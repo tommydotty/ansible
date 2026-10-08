@@ -1,0 +1,45 @@
+- name: Upgrading Diamanti's cluster
+  hosts: all
+  become_method: sudo
+  tasks:
+
+    - name: Do dlogin
+      shell: dlogin
+    
+    - name: Gathering cluster version
+      shell: dctl cluster status | awk '/^Version/ {match($3, /[0-9]\.[0-9]\.[0-9]/, v); print v[0]}'
+      register: current_v
+      environment: dlogin
+
+    - name: Print version
+      debug:
+        msg: Cluster version is "{{ current_v }}"
+
+    - name: Mount must exist
+      mount:
+        path: /dischi_for_import
+        src: 10.174.46.8:/dischi
+        fstype: nfs
+        opts: defaults,nofail,rw
+        state: mounted
+      become: true
+
+    - name: Calculate correct version for upgrade cluster
+      set_fact: 
+        new_v: >-
+          {% if current_v.stdout == '3.7.2' %}
+          3.8.2-119
+          {% elif current_v.stdout == '3.8.2' %}
+          4.0.2-60
+          {% else %}
+          unknow
+          {% endif %}
+
+    - name: Unarchive upgrade bundle
+      unarchive:
+        src: "/dischi_for_import/upgrade/diamanti-upgrade-rpms-{{ new_v | trim }}.tgz"
+        dest: /home/diamanti
+        remote_src: true
+        owner: diamanti
+        group: diamanti
+      become: true

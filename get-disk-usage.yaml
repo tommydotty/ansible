@@ -1,0 +1,16 @@
+- name: Controllo utilizzo dei volume group
+  hosts: all 
+  gather_facts: true 
+  tasks:
+    - name: Calcolare l'utilizzo dei PV
+      ansible.builtin.debug:
+        msg: >-
+          {% for pv, details in ansible_lvm.pvs.items() %}
+            {% set used_g = details.size_g | float - details.free_g | float %}
+            {% if used_g == 0 %}
+              Il VG {{ details.vg }} è vuoto.
+            {% else %}
+              Il VG {{ details.vg }} è in uso.
+            {% endif %}
+          {% endfor %}
+

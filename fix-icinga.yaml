@@ -1,0 +1,17 @@
+---
+- name: Fix icinga logging from google
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Delete daemon logging
+      replace:
+        path: /etc/rsyslog.d/90-google.conf
+        regexp: '^daemon,?'
+        replace: ''
+
+    - name: Reloading icinga
+      systemd:
+        name: icinga2
+        state: reloaded
+        

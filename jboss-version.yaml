@@ -1,0 +1,12 @@
+---
+- name: Check JBoss version
+  hosts: all
+  gather_facts: true
+  gather_subset: local
+  tasks:
+
+    - name: Fail when is greather than v8
+      fail:
+        msg: "Can't migrate vm. It's jboss 8"
+      when: ansible_local.supportoosunix.general.jboss_version | int is ge 8
+

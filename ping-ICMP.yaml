@@ -1,0 +1,18 @@
+- name: Verifica ICMP senza SSH
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Ping ICMP
+      ansible.builtin.command: ping -c 1 -W 2 {{ inventory_hostname }}
+      delegate_to: localhost
+      register: pingICMP
+
+    - name: Test connessione ssh
+      ping:
+      when: pingICMP.rc == 0
+      register: ping
+
+
+    - debug:
+        msg: "SUCCESS"
+#      when: ping.rc == 0

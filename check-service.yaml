@@ -1,0 +1,53 @@
+---
+- name: Check dei servizi per acronimo
+  hosts: all
+  gather_facts: true
+  gather_subset:
+    - local
+  vars:
+    acronym: "{{ acronimo | default('foo') }}"
+
+  tasks:
+
+    - name: Select facts when is true
+      set_fact:
+        active_apps: >-
+          {{ ansible_local.supportoosunix.general
+            | dict2items
+            | selectattr('value', 'match', '^(?i)(si|yes|true)$')
+            | map(attribute='key')
+            | list }}
+
+    - name: Fail if active_apps is empty
+      fail:
+        msg: "Nessun servizio trovato"
+      when: (active_apps | length == 0) or acronimo == ""
+
+    - name: Collecting service status
+      service_facts:
+
+    - block:
+        - name: Extracs unit Apache
+          command: "systemctl show '*{{ acronym }}*' -p Id --value"
+          register: unit_name
+
+        - name: Apache unit is started and enabled
+          systemd:
+            name: "{{ unit_name.stdout }}"
+            enabled: true
+            state: started
+      name: Blocco Apache
+      when: ansible_local.supportoosunix.general.web | bool 
+
+    - block:
+        - name: Extracs unit JBoss
+          command: "systemctl show '*jboss*' -p Id --value"
+          register: unit_name
+
+        - name: JBoss unit is started and enabled
+          systemd:
+            name: "{{ unit_name.stdout }}"
+            enabled: true
+            state: started
+      name: Blocco JBoss
+      when: ansible_local.supportoosunix.general.jboss | bool 

@@ -1,0 +1,60 @@
+---
+- name: Rimuove VG senza LV e SOLO i PV associati
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Elenco VG con 0 LV
+      ansible.builtin.command: >
+        vgs --noheadings -o vg_name --select 'lv_count=0'
+      register: vg_list
+      changed_when: false
+      check_mode: false
+
+    - name: Lista VG senza LV
+      ansible.builtin.set_fact:
+        empty_vgs: "{{ vg_list.stdout_lines | map('trim') | list }}"
+
+    - name: Mostra VG senza LV
+      ansible.builtin.debug:
+        msg: "VG senza LV: {{ empty_vgs }}"
+
+    - name: Elenco PV con VG associato
+      ansible.builtin.command: >
+        pvs --noheadings -o pv_name,vg_name --separator ';'
+      register: pv_list
+      changed_when: false
+      check_mode: false
+
+    - name: Calcola SOLO i PV appartenenti ai VG vuoti (NO split)
+      ansible.builtin.set_fact:
+        pv_to_remove: >-
+          {{
+            pv_list.stdout_lines
+            | map('trim')
+            | select('search', ';(' ~ (empty_vgs | join('|')) ~ ')$')
+            | map('regex_replace', ';.*$', '')
+            | list
+          }}
+
+    - name: DEBUG – cosa verrebbe rimosso
+      ansible.builtin.debug:
+        msg:
+          - "VG da rimuovere: {{ empty_vgs }}"
+          - "PV da rimuovere: {{ pv_to_remove }}"
+      when: ansible_check_mode
+
+    - name: Rimuove VG
+      ansible.builtin.command: vgremove -y {{ item }}
+      loop: "{{ empty_vgs }}"
+      when: 
+        - not ansible_check_mode
+        - empty_vgs | length > 0
+    
+    - name: Rimuove PV
+      ansible.builtin.command: pvremove -y {{ item }}
+      loop: "{{ pv_to_remove }}"
+      when:
+        - not ansible_check_mode
+        - empty_vgs | length > 0

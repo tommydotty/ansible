@@ -1,0 +1,163 @@
+---
+- name: Copia i file generati nel repository
+  hosts: all
+  connection: local
+  gather_facts: no
+
+  vars: # {{{
+    cluster_scope:
+      dmtew12isp002s: apache
+      dmtew12isp003s: apache
+      dmtew12isp005s: apache
+      dmtew12isp006s: jboss
+      dmtew12isp007s: poc
+      dmtew12isp004t: apache
+      dmtew12isp005t: jboss
+    vm_name: "{{ inventory_hostname }}"
+    cluster_name: "{{ cluster }}"
+    repository: "https://bitbucket.intesasanpaolo.com/scm/dmnt0/vm-configurations-kubernetes.git"
+    remote_repo_path: /tmp/repository # }}}
+
+  tasks: # {{{
+    - name: Ensure vars are set
+      assert:
+        that:
+          - vm_name is defined
+          - cluster_name is defined 
+    - name: Blocco d'esecuzione su localhost
+      block:
+
+        - name: cluser login
+          shell: >-
+            dctl -s {{ cluster_name }}.syssede.systest.sanpaoloimi.com login -u admin -p Diamanti@111
+          environment:
+            PATH: "/usr/local/bin:/usr/bin:/bin"
+          changed_when: false
+    
+        - name: ensure path exists
+          file:
+            path: "{{ vm_name }}/transfert"
+            state: directory
+
+        - name: Export VM config
+          shell: >-
+              kubectl get vm {{ vm_name }} -n {{ vm_name }} -o json \
+              | jq 'del(.status)
+                    | del(.metadata.managedFields,
+                          .metadata.annotations,
+                          .metadata.creationTimestamp,
+                        .metadata.finalizers,
+                        .metadata.generation,
+                        .metadata.resourceVersion,
+                        .metadata.uid)' > {{ vm_name }}/transfert/vm-{{ vm_name }}.json
+          args:
+            executable: /bin/bash
+          environment:
+            PATH: "/usr/local/bin:/usr/bin:/bin"
+          changed_when: false
+    
+        - name: Get lista PVC
+          command: kubectl get pvc -n {{ vm_name }} -o jsonpath='{.items[*].metadata.name}'
+          environment:
+            PATH: "/usr/local/bin:/usr/bin:/bin"
+          register: pvc_list
+          changed_when: false
+    
+        - name: Export PVC config
+          shell: >-
+              kubectl get pvc {{ item }} -n {{ vm_name }} -o json \
+              | jq 'del(.status)
+                    | del(.metadata.managedFields,
+                          .metadata.annotations,
+                          .metadata.creationTimestamp,
+                          .metadata.finalizers,
+                          .metadata.resourceVersion,
+                          .metadata.uid,
+                          .metadata.volumeName)' \ > {{ vm_name }}/transfert/pvc-{{ item }}.json
+          args:
+            executable: /bin/bash
+          environment:
+            PATH: "/usr/local/bin:/usr/bin:/bin"
+          loop: "{{ pvc_list.stdout.split() }}"
+          changed_when: false
+    
+        - name: Get lista SVC
+          command: kubectl get svc -n {{ vm_name }} -o jsonpath='{.items[*].metadata.name}'
+          environment:
+            PATH: "/usr/local/bin:/usr/bin:/bin"
+          register: svc_list
+          changed_when: false
+    
+        - name: Export SVC config
+          shell: >-
+              kubectl get svc {{ item }} -n {{ vm_name }} -o json \
+              | jq 'del(.status)
+                    | del(.metadata.managedFields,
+                          .metadata.annotations,
+                          .metadata.creationTimestamp,
+                          .metadata.finalizers,
+                          .metadata.resourceVersion,
+                          .metadata.uid)
+                    | del(.spec.clusterIP,
+                          .spec.clusterIPs,
+                          .spec.ipFamilies,
+                          .spec.ipFamilyPolicy)' > {{ vm_name }}/transfert/svc-{{ item }}.json
+          args:
+            executable: /bin/bash
+          environment:
+            PATH: "/usr/local/bin:/usr/bin:/bin"
+          loop: "{{ svc_list.stdout.split() }}"
+          changed_when: false
+    
+        - name: Set proxy for production
+          set_fact:
+            proxy_env:
+              http_proxy: ""
+              https_proxy: ""
+    
+        - name: Deploy credential file
+          copy:
+            dest: "/tmp/.git.credential"
+            content: "https://u0n4022:BBDC-NDE0NDE5NzkzNTYwOgJRvQm1QQDI81MDl%2b8m97uRo34U@bitbucket.intesasanpaolo.com"
+            mode: '0600'
+    
+        - name: Clone repository with dedicated credential file
+          command: git clone -c credential.helper='store --file=/tmp/.git.credential' -b vm_files {{ repository }} {{ remote_repo_path }}
+          environment: "{{ proxy_env }}"
+          when: not ansible_check_mode
+    
+        - name: mv files in repository
+          command: "mv {{ vm_name }}/transfert {{ remote_repo_path }}/{{ cluster_scope[cluster_name] }}/{{ vm_name }}"
+          when: not ansible_check_mode
+    
+        - name: git add
+          command: git add {{ cluster_scope[cluster_name] }}/{{ vm_name }}
+          args:
+            chdir: "{{ remote_repo_path }}"
+          when: not ansible_check_mode
+    
+        - name: git commit
+          command: git commit -m "Migrazione V2C {{ vm_name }} sul cluster {{ cluster_name }}"
+          args:
+            chdir: "{{ remote_repo_path }}"
+          when: not ansible_check_mode
+    
+        - name: git push
+          command: git push
+          args:
+            chdir: "{{ remote_repo_path }}"
+          environment: "{{ proxy_env }}"
+          when: not ansible_check_mode
+    
+        - name: Remove credential file
+          file: 
+            path: "/tmp/.git.credential"
+            state: absent
+        - name: Remove local copy of repository
+          file:
+            path: "{{ remote_repo_path }}"
+            state: absent
+      delegate_to: localhost
+      connection: local
+      become: true
+      become_user: b0n4022 # }}}

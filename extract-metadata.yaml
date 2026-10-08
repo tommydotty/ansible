@@ -1,0 +1,13 @@
+---
+- name: Estrai i facts local metadata
+  hosts: all
+  gather_facts: true
+  gather_subset: 
+    - all
+    - local
+  tasks:
+    - name: Stampa facts
+      debug:
+        msg: | 
+          - "{{ ansible_local.metadata.gcp.instance.zone.split('/')[-1] }}"
+          - "{{ ansible_local.metadata.gcp.instance.attributes.hostname.split('-')[0] }}'
